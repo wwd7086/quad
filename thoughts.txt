@@ -1,0 +1,9 @@
+#
+1. visualize the obstacle and trajectory together
+	- insinde matlab
+	- using rviz
+
+2. real time traj
+ 	- motion primitive 
+
+3. go back to takeoff place
