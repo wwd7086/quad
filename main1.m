@@ -49,24 +49,27 @@ pos_zero_des = [0; 0; 0];
 vel_zero_des = [0; 0; 0];
 acce_zero_des = [0; 0; 0];
 
-%% predefined trajectory
-traj_scale = 5;
-traj_times = ones(3,1);
-xpoints = [0,1.5,0,0; 0,0,-1,0];
-ypoints = [0,2,4,5; 0,2,1,0];
-traj_x=gen_traj_dp(10,4,xpoints,traj_times,5);
-traj_y=gen_traj_dp(10,4,ypoints,traj_times,5);
-
 %% setup & go
 msg_wait = 3;
 % find robot starting position
 odom_msg = odom_sub.read(msg_wait, false);
 odom_updated = false;
 if ~isempty(odom_msg)
-	start_pos = [odom_msg.pose.pose.position.x;
-	odom_msg.pose.pose.position.y;
-	odom_msg.pose.pose.position.z];
+    start_pos = [odom_msg.pose.pose.position.x;
+    odom_msg.pose.pose.position.y;
+    odom_msg.pose.pose.position.z];
+else
+    start_pos = [0;0;0];
 end
+
+%% predefined trajectory
+traj_scale = 5;
+traj_times = ones(4,1);
+xpoints = [start_pos(1), start_pos(1)+1, start_pos(1)+1, start_pos(1), start_pos(1)];
+ypoints = [start_pos(2), start_pos(2), start_pos(2)+1, start_pos(2)+1, start_pos(2)];
+traj_x=gen_traj_dp(10,4,xpoints,traj_times,5);
+traj_y=gen_traj_dp(10,4,ypoints,traj_times,5);
+
 % if you aren't connected to vicon, the code will break here 
 % set up a timeline & waypoints
 motor_msg.data = true;
