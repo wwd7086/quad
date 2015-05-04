@@ -1,5 +1,5 @@
 %plan and generate the trajectory
-function [traj_x, traj_y, traj_times] = plan_traj(start_pos, goal_pos, fan1, fan2, map_scale)
+function [traj_x, traj_y, traj_times] = plan_traj_part(start_pos, goal_pos, fan1, fan2, map_scale)
 tic;
 %world boundary
 % xmin xmax ymin ymax
@@ -27,11 +27,11 @@ path = map2world(path, map_scale, worldRect);
 num_pts = size(path,1);
 
 %generate trajs based on world
-traj_times = ones(num_pts+2,1);
+traj_times = ones(num_pts+1,1);
 second_pos = map2world(start_plan,map_scale,worldRect);
 last_pos = bsxfun(@plus, path(end,:), 0.01);
-xpoints = [start_pos(1),second_pos(1),path(:,1)',last_pos(1)];%;ones(1,num_pts)];
-ypoints = [start_pos(2),second_pos(2),path(:,2)',last_pos(2)];%;ones(1,num_pts)];
+xpoints = [second_pos(1),path(:,1)',last_pos(1)];%;ones(1,num_pts)];
+ypoints = [second_pos(2),path(:,2)',last_pos(2)];%;ones(1,num_pts)];
 traj_x=gen_traj_dp(10,4,xpoints,traj_times,3);
 traj_y=gen_traj_dp(10,4,ypoints,traj_times,3);
 

@@ -1,4 +1,4 @@
-% pure trajectory generation
+% dynamic planing + trajectory generation
 
 %% init
 init
@@ -12,14 +12,19 @@ trims.thrust = 0;
 
 %% Create the input-output connections to ROS
 clear imu_sub cd_pub rpm_pub motor_pub;
+% quadrotor state estimation
 odom_sub = ipc_bridge.createSubscriber('nav_msgs', 'Odometry', 'odom');
 imu_sub = ipc_bridge.createSubscriber('sensor_msgs', 'Imu', 'imu');
+% quadrotor control
 rpm_pub = ipc_bridge.createPublisher('quadrotor_msgs', 'RPMCommand', 'rpm_cmd');
 rpm_msg = rpm_pub.empty();
 motor_pub = ipc_bridge.createPublisher('std_msgs', 'Bool', 'motors');
 motor_msg = motor_pub.empty();
 cd_pub = ipc_bridge.createPublisher('quadrotor_msgs', 'CascadedCommand', 'cascaded_cmd');
 cd_msg = cd_pub.empty();
+% fan position
+fan1 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan1/odom');
+fan2 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan2/odom');
 for i = 1:10
 	odom_sub.read(10,false);
 	imu_sub.read(10, false);
@@ -55,27 +60,21 @@ msg_wait = 3;
 odom_msg = odom_sub.read(msg_wait, false);
 odom_updated = false;
 if ~isempty(odom_msg)
-    start_pos = [odom_msg.pose.pose.position.x;
-    odom_msg.pose.pose.position.y;
-    odom_msg.pose.pose.position.z];
+	start_pos = [odom_msg.pose.pose.position.x;
+	odom_msg.pose.pose.position.y;
+	odom_msg.pose.pose.position.z];
 else
     start_pos = [0;0;0];
 end
-
-%% predefined trajectory
-traj_scale = 5;
-traj_times = ones(4,1);
-xpoints = [start_pos(1), start_pos(1)-1, start_pos(1)-1, start_pos(1), start_pos(1)];
-ypoints = [start_pos(2), start_pos(2), start_pos(2)+1, start_pos(2)+1, start_pos(2)];
-traj_x=gen_traj_dp(10,4,xpoints,traj_times,3);
-traj_y=gen_traj_dp(10,4,ypoints,traj_times,3);
-
 % if you aren't connected to vicon, the code will break here 
-% set up a timeline & waypoints
 motor_msg.data = true;
 motor_pub.publish(motor_msg);
 pause(1);
 
+%% predefined trajectory
+map_scale = 3;
+traj_scale = 1;
+goal_pos = [1.8,2.5];
 
 %% main loop
 t_end = 500;
@@ -129,6 +128,16 @@ while toc(tstart)<t_end
 		imu_idx = imu_idx + 1;
 		imu_updated = true;            
 	end
+
+    %% Read the fan information
+    fan1_msg = fan1.read(msg_wait,false);
+    if ~isempty(fan1_msg)
+        fan1_pos = [fan1_msg.pose.pose.position.x, fan1_msg.pose.pose.position.y];
+    end
+    fan2_msg = fan2.read(msg_wait,false);
+    if ~isempty(fan2_msg)
+        fan2_pos = [fan2_msg.pose.pose.position.x, fan2_msg.pose.pose.position.y];
+    end
 
 	%% Controller
 	if imu_idx > 1 && imu_updated && odom_idx > 1
@@ -209,24 +218,39 @@ while toc(tstart)<t_end
                 if isFirstSwitch
                     isFirstSwitch = false;
                     fprintf('-----track state-----\n');
-                    trackTic = tic;            
+
+                    % init the plan
+                    [traj_x, traj_y, traj_times] = plan_traj(...
+                    myodom.pos(1:2)', goal_pos, fan1_pos, fan2_pos, map_scale);
+
+                    trackTic = tic;
+                end
+
+                trackTime = toc(trackTic);
+
+                %% recompute the traj
+                if trackTime>2  
+                    [traj_x, traj_y, traj_times] = plan_traj_part(...
+                    myodom.pos(1:2)', goal_pos, fan1_pos, fan2_pos, map_scale);
+                    trackTic = tic;
+                    trackTime = 0;
                 end
 
                 %% set desire value for track
-                trackTime = toc(trackTic);
                 if trackTime<=sum(traj_times)*traj_scale
                     [x_des,xd_des,xdd_des] = ...
                     traj_value(traj_x,traj_times,trackTime,traj_scale);
 
                     [y_des,yd_des,ydd_des]= ...
                     traj_value(traj_y,traj_times,trackTime,traj_scale);
+
+                    pos_des = [x_des; y_des; start_pos(3)+hover_height_des]; 
+                    vel_des = [xd_des; yd_des; 0];
+                    acce_des = [xdd_des; ydd_des; 0];
                 end
 
-                pos_des = [x_des; y_des; start_pos(3)+hover_height_des]; 
-                vel_des = [xd_des; yd_des; 0];
-                acce_des = [xdd_des; ydd_des; 0];
-
-                if toc(trackTic)> sum(traj_times)*traj_scale
+                %% transit to next state    
+                if all(abs(myodom.pos(1:2)' - goal_pos) < 0.2)
                     state = 2;
                     isFirstSwitch = true;
                 end

@@ -1,4 +1,6 @@
 % test the plan_traj function
+close all;
+
 map_scale = 3;
 traj_scale = 0.8;
 start_pos = [0,0];
