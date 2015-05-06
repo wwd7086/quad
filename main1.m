@@ -26,17 +26,25 @@ for i = 1:10
 end
 
 %% data recording
-samples = 50000;
-imu_idx = 1;
+samples = 20000;
+
 odom_idx = 1;
 pos_odom = zeros(3,samples);
 att_odom = zeros(3,samples);
 vel_odom = zeros(3,samples);
 ang_odom = zeros(3,samples);
+odom_time = zeros(1,samples);
+
+imu_idx = 1;
 att_imu = zeros(3,samples);
 ang_imu = zeros(3,samples);
-odom_time = zeros(1,samples);
 imu_time = zeros(1,samples);
+
+err_idx=1;
+all_pos_err = zeros(3,samples);
+all_vel_err = zeros(3,samples);
+all_acce_des = zeros(3,samples);
+all_err_time = zeros(1,samples);
 
 %% state machine
 state = 0;
@@ -44,7 +52,7 @@ isFirstSwitch=true;
 isFirstHover=true;
 
 %% static desired state
-hover_height_des = 1;
+hover_height_des = 0.75;
 pos_zero_des = [0; 0; 0];
 vel_zero_des = [0; 0; 0];
 acce_zero_des = [0; 0; 0];
@@ -52,30 +60,25 @@ acce_zero_des = [0; 0; 0];
 %% setup & go
 msg_wait = 3;
 % find robot starting position
-odom_msg = odom_sub.read(msg_wait, false);
+odom_msg = odom_sub.read(msg_wait+10, false);
 odom_updated = false;
 if ~isempty(odom_msg)
     start_pos = [odom_msg.pose.pose.position.x;
     odom_msg.pose.pose.position.y;
     odom_msg.pose.pose.position.z];
-else
-    start_pos = [0;0;0];
 end
-
-%% predefined trajectory
-traj_scale = 5;
-traj_times = ones(4,1);
-xpoints = [start_pos(1), start_pos(1)-1, start_pos(1)-1, start_pos(1), start_pos(1)];
-ypoints = [start_pos(2), start_pos(2), start_pos(2)+1, start_pos(2)+1, start_pos(2)];
-traj_x=gen_traj_dp(10,4,xpoints,traj_times,3);
-traj_y=gen_traj_dp(10,4,ypoints,traj_times,3);
-
 % if you aren't connected to vicon, the code will break here 
-% set up a timeline & waypoints
 motor_msg.data = true;
 motor_pub.publish(motor_msg);
 pause(1);
 
+%% predefined trajectory
+traj_scale = 10;
+traj_times = ones(4,1);
+xpoints = [start_pos(1), start_pos(1)+1, start_pos(1)+1, start_pos(1), start_pos(1)];
+ypoints = [start_pos(2), start_pos(2), start_pos(2)+1, start_pos(2)+1, start_pos(2)];
+traj_x=gen_traj_dp(10,4,xpoints,traj_times,3);
+traj_y=gen_traj_dp(10,4,ypoints,traj_times,3);
 
 %% main loop
 t_end = 500;
@@ -131,7 +134,7 @@ while toc(tstart)<t_end
 	end
 
 	%% Controller
-	if imu_idx > 1 && imu_updated && odom_idx > 1
+	if imu_idx > 1 && imu_updated && odom_idx > 1 && odom_updated
 		%% behavior depends on states
         %switch state first
         %then set the desired point or traj
@@ -160,8 +163,8 @@ while toc(tstart)<t_end
                     fprintf('-----takeoff state-----\n');
 
                     %%generate online landing trajectory, may take some time
-                    takeoff_z_points = [0,start_pos(3)+hover_height_des;0,0];
-                    takeoff_scale = ceil(hover_height_des*2);
+                    takeoff_z_points = [start_pos(3),start_pos(3)+hover_height_des;0,0];
+                    takeoff_scale = ceil(hover_height_des*20);
                     takeoff_traj_z=gen_traj_dp(6,2,takeoff_z_points,1,3);
 
                     %%prepare for trja
@@ -230,21 +233,20 @@ while toc(tstart)<t_end
                     state = 2;
                     isFirstSwitch = true;
                 end
-            %%land        
+            %%land                 
             case 4
                 if isFirstSwitch
                     isFirstSwitch = false;
                     fprintf('-----land state-----\n');                    
 
                     %%generate online landing trajectory, may take some time
-                    current_pos_z = myodom.pos(3);
-                    land_z_points = [current_pos_z,0;0,0];
-                    land_scale = ceil(current_pos_z*2);
+                    land_z_points = [myodom.pos(3),start_pos(3);0,0];
+                    land_scale = ceil((myodom.pos(3)-start_pos(3))*20);
                     land_traj_z=gen_traj_dp(6,2,land_z_points,1,3);
 
                     %%prepare for trja
                     landTic = tic;
-                    pos_des = [pos_odom(1:2,odom_idx-1);0];
+                    pos_des = myodom.pos;
                     vel_des = vel_zero_des;
                     acce_des = acce_zero_des; 
                 end
@@ -266,7 +268,7 @@ while toc(tstart)<t_end
                     finishTic = tic;
 
                     %set desire value for idle
-                    pos_des = [pos_odom(1:2,odom_idx-1);0];
+                    pos_des = myodom.pos;
                     vel_des = vel_zero_des;
                     acce_des = acce_zero_des; 
                 end
@@ -281,7 +283,7 @@ while toc(tstart)<t_end
         end 
 
 		elapsed_t = toc(tstart); 
-		
+
 		%% position controller -> here   
 		e_pos = myodom.pos - pos_des;
 		e_vel = myodom.vel - vel_des;
@@ -297,6 +299,12 @@ while toc(tstart)<t_end
 		u_p = (u_pos(1)*cos(psi) + u_pos(2)*sin(psi))/gravity;
 		u_y = psi_des;
 
+        %% record the error
+        all_err_time(1,err_idx) = elapsed_t;
+        all_pos_err(:,err_idx) = e_pos;
+        all_vel_err(:,err_idx) = e_vel;
+        all_acce_des(:,err_idx) = acce_des;
+        err_idx = err_idx + 1;
 
 		%% send message 
 		cd_msg.header.stamp = elapsed_t;
@@ -323,7 +331,6 @@ while toc(tstart)<t_end
 		kOm.z = ko(9);          
 		cd_msg.kOm = kOm;            
 		cd_pub.publish(cd_msg);            
-
 
 	end
 end
