@@ -224,7 +224,7 @@ while toc(tstart)<t_end
                     trackTic = tic;            
                 end
                 % update the traj
-                if path_updated && ~isempty(cur_path)
+                if path_updated && ~isempty(cur_path) && numel(cur_path)>1
                     [traj_x, traj_y, traj_times] = plan_traj_poses(cur_path,myodom.pos);
                     trackTic = tic;
                 end
@@ -243,7 +243,7 @@ while toc(tstart)<t_end
                 acce_des = [xdd_des; ydd_des; 0];
 
                 %% transit to next state    
-                if all(abs(myodom.pos(1:2)' - goal_pos) < 0.2)
+                if numel(cur_path)<2 || all(abs(myodom.pos(1:2)' - goal_pos) < 0.2)
                     state = 2;
                     isFirstSwitch = true;
                 end

@@ -14,7 +14,7 @@ fan2_plan = world2map(fan2,map_scale, worldRect);
 %generate way points
 map_size = [ceil(worldRect(2)-worldRect(1))*map_scale,...
             ceil(worldRect(4)-worldRect(3))*map_scale]; 
-fan_size = 2;
+fan_size = 1;
 
 map = gen_map(fan1_plan,fan2_plan, map_size, fan_size);
 ds = Dstar(map,'quiet');

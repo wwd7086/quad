@@ -12,9 +12,6 @@ trims.thrust = 0;
 
 %% Create the input-output connections to ROS
 clear imu_sub cd_pub rpm_pub motor_pub;
-% fan position
-fan1 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan1/odom');
-fan2 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan2/odom');
 % quadrotor state estimation
 odom_sub = ipc_bridge.createSubscriber('nav_msgs', 'Odometry', 'odom');
 imu_sub = ipc_bridge.createSubscriber('sensor_msgs', 'Imu', 'imu');
@@ -25,6 +22,9 @@ motor_pub = ipc_bridge.createPublisher('std_msgs', 'Bool', 'motors');
 motor_msg = motor_pub.empty();
 cd_pub = ipc_bridge.createPublisher('quadrotor_msgs', 'CascadedCommand', 'cascaded_cmd');
 cd_msg = cd_pub.empty();
+% fan position
+fan1 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan1/odom');
+fan2 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan2/odom');
 for i = 1:10
 	odom_sub.read(10,false);
 	imu_sub.read(10, false);
@@ -83,11 +83,13 @@ pause(1);
 % fan position
 map_scale = 3;
 traj_scale = 3;
-goal_pos = [1.8,2.5];
+goal_pos = [1.5,-0.24];
 fan1_msg = fan1.read(msg_wait,false);
 fan2_msg = fan2.read(msg_wait,false);
 fan1_pos = [fan1_msg.pose.pose.position.x, fan1_msg.pose.pose.position.y];
 fan2_pos = [fan2_msg.pose.pose.position.x, fan2_msg.pose.pose.position.y];
+%fan1_pos = [0.38, -0.89];
+%fan2_pos = [0.48, -0.04];
 [traj_x, traj_y, traj_times] = plan_traj(...
     start_pos(1:2)', goal_pos, fan1_pos, fan2_pos, map_scale);
 
