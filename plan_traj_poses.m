@@ -5,7 +5,7 @@ function [traj_x, traj_y, traj_times] = plan_traj_poses(poses,cur_pos)
 	num_pt = numel(poses)
 	
 	[x,Y]=poses2array(poses);
-	pp = spline(x,Y);
+	traj = spline(x,Y);
 	
 	num_pt = min(num_pt,10); % limit the number of points
 	traj_times = ones(num_pt-1,1);
@@ -16,8 +16,14 @@ function [traj_x, traj_y, traj_times] = plan_traj_poses(poses,cur_pos)
 	for i=1:num_pt
 		xpoints(1,i) = poses{i}.position.x;
 		ypoints(1,i) = poses{i}.position.y;
-		xpoints(2,i) = 1;
-		ypoints(2,i) = 1;
+        
+        % find proper velocity direction
+        p1 = ppval(traj,poses{i}.position.x+0.1);
+        p0 = ppval(traj,poses{i}.position.x-0.1);
+        speed_n = [0.2,p1-p0]/sqrt(0.04+(p1-p0)^2);
+        
+		xpoints(2,i) = speed*speed_n(1);
+		ypoints(2,i) = speed*speed_n(2);
 	end
 
 	% generate traj
@@ -31,4 +37,5 @@ function [x,y] = poses2array(poses)
 	for i=1:size(poses,2)
 		x(1,i)=poses{i}.position.x;
 		y(1,i)=poses{i}.position.y;
-	end
+    end
+end
