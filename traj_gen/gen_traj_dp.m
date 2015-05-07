@@ -6,7 +6,7 @@ function traj=gen_traj_dp(polyOrder,derOrder,points,times,contOrder)
 	%generate traj by dubin curves
 	%poly is specified in this order
 	%p0 + P1*t + p2*t*t + ........
-
+	tic;
 	numOfTraj = size(points,2)-1;
 	if size(times,1) ~= numOfTraj
 		warning('time and point not consistent');
@@ -119,6 +119,7 @@ function traj=gen_traj_dp(polyOrder,derOrder,points,times,contOrder)
 	
 	% traj should be numTraj*oerderPoly , 1
 	% be carful with the order of poly!
-	traj = quadprog(QQ, zeros(polyOrder*numOfTraj,1),[],[],AA,BB);
-
+	traj = quadprog(QQ, zeros(polyOrder*numOfTraj,1),[],[],AA,BB,[],[],[],...
+		   optimoptions(@quadprog,'Display','off'));
+	toc;
 end

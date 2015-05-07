@@ -79,7 +79,6 @@ pause(1);
 
 %% trajectory
 traj_scale = 3;
-goal_pos = [1.8,2.5]; %need to change in ros also!!
 
 %% main loop
 t_end = 500;
@@ -91,6 +90,7 @@ while toc(tstart)<t_end
     if ~isempty(path_msg)
         path_updated = true;
         cur_path = path_msg.poses;
+        display('get new path!')
     end   
 	%% Read the odom message, return empty if no message after 3 ms
 	odom_msg = odom_sub.read(msg_wait, false);
@@ -219,31 +219,53 @@ while toc(tstart)<t_end
             case 3 
                 if isFirstSwitch
                     isFirstSwitch = false;
+                    isFail = false;
                     fprintf('-----track state-----\n');
-                    [traj_x, traj_y, traj_times] = plan_traj_poses(cur_path,myodom.pos);
-                    trackTic = tic;            
+                    % prepare the boot strap time and points
+                    if ~isempty(cur_path)
+                        traj_times = ones(14,1);
+                        xpoints = ones(2,15)*0.01;
+                        ypoints = ones(2,15)*0.01;
+                        xpoints(1,1) = myodom.pos(1);
+                        ypoints(1,1) = myodom.pos(2);
+                        xpoints(2,1) = 0; ypoints(2,1) = 0;
+                        for i=2:15
+                            xpoints(1,i) = cur_path{i}.position.x;
+                            ypoints(1,i) = cur_path{i}.position.y;
+                        end
+                        % generate boot strap traj
+                        traj_x=gen_traj_dp(10,4,xpoints,traj_times,3);
+                        traj_y=gen_traj_dp(10,4,ypoints,traj_times,3);
+                        trackTic = tic;
+                        trackBoot = tic;
+                    else
+                        state = 2;
+                        isFirstSwitch = true;
+                        isFail = true;
+                        warning('the trajectory is empty!!!!!');
+                    end            
                 end
                 % update the traj
-                if path_updated && ~isempty(cur_path) && numel(cur_path)>1
+                if toc(trackBoot)>2 && path_updated && ~isempty(cur_path) && numel(cur_path)>1
                     [traj_x, traj_y, traj_times] = plan_traj_poses(cur_path,myodom.pos);
                     trackTic = tic;
                 end
                 % set desire value for track
-                trackTime = toc(trackTic);
-                if trackTime<=sum(traj_times)*traj_scale
+                if ~isFail
+                    trackTime = toc(trackTic);
                     [x_des,xd_des,xdd_des] = ...
-                    traj_value(traj_x,traj_times,trackTime,traj_scale);
-
+                        traj_value(traj_x,traj_times,trackTime,traj_scale);
+    
                     [y_des,yd_des,ydd_des]= ...
-                    traj_value(traj_y,traj_times,trackTime,traj_scale);
+                        traj_value(traj_y,traj_times,trackTime,traj_scale);
+    
+                    pos_des = [x_des; y_des; start_pos(3)+hover_height_des]; 
+                    vel_des = [xd_des; yd_des; 0];
+                    acce_des = [xdd_des; ydd_des; 0];
                 end
 
-                pos_des = [x_des; y_des; start_pos(3)+hover_height_des]; 
-                vel_des = [xd_des; yd_des; 0];
-                acce_des = [xdd_des; ydd_des; 0];
-
                 %% transit to next state    
-                if numel(cur_path)<2 || all(abs(myodom.pos(1:2)' - goal_pos) < 0.2)
+                if numel(cur_path)<2
                     state = 2;
                     isFirstSwitch = true;
                 end
@@ -307,7 +329,7 @@ while toc(tstart)<t_end
 
 		%% altitude controller -> onboard
 		phi = myodom.att(1); theta = myodom.att(2); psi = myodom.att(3);
-		psi_des = psi; % no heading control
+		psi_des = 0; % no heading control
 		ang_des = zeros(3,1);
 		u_r = (u_pos(1)*sin(psi) - u_pos(2)*cos(psi))/gravity;
 		u_p = (u_pos(1)*cos(psi) + u_pos(2)*sin(psi))/gravity;
