@@ -1,4 +1,4 @@
-% dynamic planing with d star from matlab+ trajectory generation
+% dynamic planing with external ros node+ trajectory generation
 
 %% init
 init
@@ -12,6 +12,8 @@ trims.thrust = 0;
 
 %% Create the input-output connections to ROS
 clear imu_sub cd_pub rpm_pub motor_pub;
+% plan
+path_sub = ipc_bridge.createSubscriber('geometry_msgs','PoseArray','plan_path');
 % quadrotor state estimation
 odom_sub = ipc_bridge.createSubscriber('nav_msgs', 'Odometry', 'odom');
 imu_sub = ipc_bridge.createSubscriber('sensor_msgs', 'Imu', 'imu');
@@ -22,26 +24,32 @@ motor_pub = ipc_bridge.createPublisher('std_msgs', 'Bool', 'motors');
 motor_msg = motor_pub.empty();
 cd_pub = ipc_bridge.createPublisher('quadrotor_msgs', 'CascadedCommand', 'cascaded_cmd');
 cd_msg = cd_pub.empty();
-% fan position
-fan1 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan1/odom');
-fan2 = ipc_bridge.createSubscriber('nav_msgs','Odometry','fan2/odom');
 for i = 1:10
 	odom_sub.read(10,false);
 	imu_sub.read(10, false);
+    path_sub.read(10,false);
 end
 
 %% data recording
-samples = 50000;
-imu_idx = 1;
+samples = 20000;
+
 odom_idx = 1;
 pos_odom = zeros(3,samples);
 att_odom = zeros(3,samples);
 vel_odom = zeros(3,samples);
 ang_odom = zeros(3,samples);
+odom_time = zeros(1,samples);
+
+imu_idx = 1;
 att_imu = zeros(3,samples);
 ang_imu = zeros(3,samples);
-odom_time = zeros(1,samples);
 imu_time = zeros(1,samples);
+
+err_idx=1;
+all_pos_err = zeros(3,samples);
+all_vel_err = zeros(3,samples);
+all_acce_des = zeros(3,samples);
+all_err_time = zeros(1,samples);
 
 %% state machine
 state = 0;
@@ -49,7 +57,7 @@ isFirstSwitch=true;
 isFirstHover=true;
 
 %% static desired state
-hover_height_des = 1;
+hover_height_des = 0.75;
 pos_zero_des = [0; 0; 0];
 vel_zero_des = [0; 0; 0];
 acce_zero_des = [0; 0; 0];
@@ -63,23 +71,27 @@ if ~isempty(odom_msg)
 	start_pos = [odom_msg.pose.pose.position.x;
 	odom_msg.pose.pose.position.y;
 	odom_msg.pose.pose.position.z];
-else
-    start_pos = [0;0;0];
 end
 % if you aren't connected to vicon, the code will break here 
 motor_msg.data = true;
 motor_pub.publish(motor_msg);
 pause(1);
 
-%% predefined trajectory
-map_scale = 3;
-traj_scale = 1;
-goal_pos = [1.8,2.5];
+%% trajectory
+traj_scale = 3;
+goal_pos = [1.8,2.5]; %need to change in ros also!!
 
 %% main loop
 t_end = 500;
 tstart = tic;
-while toc(tstart)<t_end   
+while toc(tstart)<t_end
+    %% Read the generated path
+    path_msg = path_sub.read(msg_wait,false);
+    path_updated = false;
+    if ~isempty(path_msg)
+        path_updated = true;
+        cur_path = path_msg.poses;
+    end   
 	%% Read the odom message, return empty if no message after 3 ms
 	odom_msg = odom_sub.read(msg_wait, false);
 	odom_updated = false;
@@ -129,18 +141,8 @@ while toc(tstart)<t_end
 		imu_updated = true;            
 	end
 
-    %% Read the fan information
-    fan1_msg = fan1.read(msg_wait,false);
-    if ~isempty(fan1_msg)
-        fan1_pos = [fan1_msg.pose.pose.position.x, fan1_msg.pose.pose.position.y];
-    end
-    fan2_msg = fan2.read(msg_wait,false);
-    if ~isempty(fan2_msg)
-        fan2_pos = [fan2_msg.pose.pose.position.x, fan2_msg.pose.pose.position.y];
-    end
-
 	%% Controller
-	if imu_idx > 1 && imu_updated && odom_idx > 1
+	if imu_idx > 1 && imu_updated && odom_idx > 1 && odom_updated
 		%% behavior depends on states
         %switch state first
         %then set the desired point or traj
@@ -169,8 +171,8 @@ while toc(tstart)<t_end
                     fprintf('-----takeoff state-----\n');
 
                     %%generate online landing trajectory, may take some time
-                    takeoff_z_points = [0,start_pos(3)+hover_height_des;0,0];
-                    takeoff_scale = ceil(hover_height_des*2);
+                    takeoff_z_points = [start_pos(3),start_pos(3)+hover_height_des;0,0];
+                    takeoff_scale = ceil(hover_height_des*10);
                     takeoff_traj_z=gen_traj_dp(6,2,takeoff_z_points,1,3);
 
                     %%prepare for trja
@@ -202,7 +204,7 @@ while toc(tstart)<t_end
                     acce_des = acce_zero_des;  
                 end
 
-                if toc(hoverTic)>=3
+                if toc(hoverTic)>=2
                     if isFirstHover
                         isFirstHover = false;
                         state = 3;
@@ -218,36 +220,27 @@ while toc(tstart)<t_end
                 if isFirstSwitch
                     isFirstSwitch = false;
                     fprintf('-----track state-----\n');
-
-                    % init the plan
-                    [traj_x, traj_y, traj_times] = plan_traj(...
-                    myodom.pos(1:2)', goal_pos, fan1_pos, fan2_pos, map_scale);
-
+                    [traj_x, traj_y, traj_times] = plan_traj_poses(cur_path,myodom.pos);
+                    trackTic = tic;            
+                end
+                % update the traj
+                if path_updated && ~isempty(cur_path)
+                    [traj_x, traj_y, traj_times] = plan_traj_poses(cur_path,myodom.pos);
                     trackTic = tic;
                 end
-
+                % set desire value for track
                 trackTime = toc(trackTic);
-
-                %% recompute the traj
-                if trackTime>2  
-                    [traj_x, traj_y, traj_times] = plan_traj_part(...
-                    myodom.pos(1:2)', goal_pos, fan1_pos, fan2_pos, map_scale);
-                    trackTic = tic;
-                    trackTime = 0;
-                end
-
-                %% set desire value for track
                 if trackTime<=sum(traj_times)*traj_scale
                     [x_des,xd_des,xdd_des] = ...
                     traj_value(traj_x,traj_times,trackTime,traj_scale);
 
                     [y_des,yd_des,ydd_des]= ...
                     traj_value(traj_y,traj_times,trackTime,traj_scale);
-
-                    pos_des = [x_des; y_des; start_pos(3)+hover_height_des]; 
-                    vel_des = [xd_des; yd_des; 0];
-                    acce_des = [xdd_des; ydd_des; 0];
                 end
+
+                pos_des = [x_des; y_des; start_pos(3)+hover_height_des]; 
+                vel_des = [xd_des; yd_des; 0];
+                acce_des = [xdd_des; ydd_des; 0];
 
                 %% transit to next state    
                 if all(abs(myodom.pos(1:2)' - goal_pos) < 0.2)
@@ -261,14 +254,13 @@ while toc(tstart)<t_end
                     fprintf('-----land state-----\n');                    
 
                     %%generate online landing trajectory, may take some time
-                    current_pos_z = myodom.pos(3);
-                    land_z_points = [current_pos_z,0;0,0];
-                    land_scale = ceil(current_pos_z*2);
+                    land_z_points = [myodom.pos(3),start_pos(3);0,0];
+                    land_scale = ceil((myodom.pos(3)-start_pos(3))*10);
                     land_traj_z=gen_traj_dp(6,2,land_z_points,1,3);
 
                     %%prepare for trja
                     landTic = tic;
-                    pos_des = [pos_odom(1:2,odom_idx-1);0];
+                    pos_des = myodom.pos;
                     vel_des = vel_zero_des;
                     acce_des = acce_zero_des; 
                 end
@@ -290,9 +282,9 @@ while toc(tstart)<t_end
                     finishTic = tic;
 
                     %set desire value for idle
-                    pos_des = [pos_odom(1:2,odom_idx-1);0];
+                    pos_des = myodom.pos;
                     vel_des = vel_zero_des;
-                    acce_des = acce_zero_des; 
+                    acce_des = acce_zero_des;  
                 end
 
                 if toc(finishTic)>=2
@@ -321,6 +313,12 @@ while toc(tstart)<t_end
 		u_p = (u_pos(1)*cos(psi) + u_pos(2)*sin(psi))/gravity;
 		u_y = psi_des;
 
+        %% record the error
+        all_err_time(1,err_idx) = elapsed_t;
+        all_pos_err(:,err_idx) = e_pos;
+        all_vel_err(:,err_idx) = e_vel;
+        all_acce_des(:,err_idx) = acce_des;
+        err_idx = err_idx + 1;
 
 		%% send message 
 		cd_msg.header.stamp = elapsed_t;

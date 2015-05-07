@@ -175,7 +175,7 @@ while toc(tstart)<t_end
 
                     %%generate online landing trajectory, may take some time
                     takeoff_z_points = [start_pos(3),start_pos(3)+hover_height_des;0,0];
-                    takeoff_scale = ceil(hover_height_des*20);
+                    takeoff_scale = ceil(hover_height_des*10);
                     takeoff_traj_z=gen_traj_dp(6,2,takeoff_z_points,1,3);
 
                     %%prepare for trja
@@ -207,7 +207,7 @@ while toc(tstart)<t_end
                     acce_des = acce_zero_des;  
                 end
 
-                if toc(hoverTic)>=3
+                if toc(hoverTic)>=2
                     if isFirstHover
                         isFirstHover = false;
                         state = 3;
@@ -252,7 +252,7 @@ while toc(tstart)<t_end
 
                     %%generate online landing trajectory, may take some time
                     land_z_points = [myodom.pos(3),start_pos(3);0,0];
-                    land_scale = ceil((myodom.pos(3)-start_pos(3))*20);
+                    land_scale = ceil((myodom.pos(3)-start_pos(3))*10);
                     land_traj_z=gen_traj_dp(6,2,land_z_points,1,3);
 
                     %%prepare for trja

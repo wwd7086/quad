@@ -1,4 +1,4 @@
-%plan and generate the trajectory
+%plan and generate the trajectory with non-zero start velocities
 function [traj_x, traj_y, traj_times] = plan_traj_part(start_pos, goal_pos, fan1, fan2, map_scale)
 tic;
 %world boundary
